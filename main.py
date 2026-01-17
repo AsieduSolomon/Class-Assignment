@@ -21,11 +21,11 @@ except ImportError:
     st.error("⚠️ ReportLab not installed. PDF generation will be disabled. Install it with: pip install reportlab")
 
 # ========== CONFIGURATION ==========
-ADMIN_PASSWORD = "renewable2025"  # Change this to set your admin password
+ADMIN_PASSWORD = "renewable2026" 
 DATA_FILE = "students_data.json"
-COURSE_TITLE = "Renewable Energy Systems"
-LECTURER_NAME = "Dr. Energy Expert"
-DEPARTMENT = "Department of Energy Engineering"
+COURSE_TITLE = "Renewable Energy Systems Lab"
+LECTURER_NAME = "Mr. Frank Effah"
+DEPARTMENT = "Department of Electrical and Electronics Engineering"
 
 # ========== DATA PERSISTENCE FUNCTIONS ==========
 def validate_index_format(index_number):
@@ -538,3 +538,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
