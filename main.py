@@ -34,7 +34,7 @@ def validate_index_format(index_number):
     Format: STUBTECH followed by exactly 6 digits
     Example: STUBTECH220457
     """
-    pattern = r'^STUBTECH\d{6}$'  # Fixed: Added closing $ and fixed quote
+    pattern = r'^STUBTECH\d{6}$'
     return bool(re.match(pattern, index_number))
 
 def load_data():
@@ -52,15 +52,16 @@ def save_data(df):
     """Save student data to JSON file"""
     df.to_json(DATA_FILE, orient='records', indent=2)
 
-# ========== GROUPING LOGIC ==========
+# ========== GROUPING LOGIC (FIXED) ==========
 def assign_groups(df):
     """
     Assign students to groups randomly but evenly.
     Primary groups: A, B, C, D, E
     Subgroups: 1, 2, 3, 4, 5
+    Maximum 8 students per subgroup
     Total: 25 subgroups (A1, A2, A3, A4, A5, B1, B2...E5)
     """
-    # Create all possible group combinations
+    # Create all possible group combinations (fixed 25)
     primary_groups = ['A', 'B', 'C', 'D', 'E']
     subgroups = ['1', '2', '3', '4', '5']
     all_groups = [(p, s) for p in primary_groups for s in subgroups]
@@ -72,19 +73,38 @@ def assign_groups(df):
     if num_unassigned == 0:
         return df
     
-    # Create balanced assignment
-    # Calculate students per subgroup
-    students_per_subgroup = num_unassigned // 25
-    remainder = num_unassigned % 25
+    # FIXED: Maximum 8 students per subgroup
+    STUDENTS_PER_SUBGROUP = 8
+    MAX_STUDENTS = len(all_groups) * STUDENTS_PER_SUBGROUP  # 200
     
-    # Create assignment list
+    # Warning if exceeding capacity
+    if num_unassigned > MAX_STUDENTS:
+        st.warning(f"⚠️ Warning: {num_unassigned} students registered, but only {MAX_STUDENTS} can be assigned to groups (max 8 per group). {num_unassigned - MAX_STUDENTS} students will remain unassigned.")
+        # Only assign first 200 students
+        unassigned = unassigned.head(MAX_STUDENTS)
+        num_unassigned = MAX_STUDENTS
+    
+    # Create perfectly balanced assignment
+    students_assigned = 0
     assignments = []
-    for i, (primary, sub) in enumerate(all_groups):
-        # Add extra student to first 'remainder' groups
-        count = students_per_subgroup + (1 if i < remainder else 0)
-        assignments.extend([(primary, sub)] * count)
     
-    # Shuffle for randomness (with seed for reproducibility if needed)
+    for i, (primary, sub) in enumerate(all_groups):
+        if students_assigned >= num_unassigned:
+            break
+        
+        # Calculate students for this group (evenly distributed)
+        remaining_students = num_unassigned - students_assigned
+        remaining_groups = len(all_groups) - i
+        
+        # Distribute evenly: base amount + 1 for first few groups if there's remainder
+        base_per_group = remaining_students // remaining_groups
+        extra = 1 if i < (remaining_students % remaining_groups) else 0
+        students_for_group = min(base_per_group + extra, STUDENTS_PER_SUBGROUP)
+        
+        assignments.extend([(primary, sub)] * students_for_group)
+        students_assigned += students_for_group
+    
+    # Shuffle for randomness
     random.shuffle(assignments)
     
     # Assign groups
@@ -538,4 +558,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
