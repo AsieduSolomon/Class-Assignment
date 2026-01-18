@@ -23,9 +23,68 @@ except ImportError:
 # ========== CONFIGURATION ==========
 ADMIN_PASSWORD = "renewable2026" 
 DATA_FILE = "students_data.json"
+BACKUP_FILE = "students_data_backup.json"
 COURSE_TITLE = "Renewable Energy Systems Lab"
 LECTURER_NAME = "Mr. Frank Effah"
 DEPARTMENT = "Department of Electrical and Electronics Engineering"
+
+# ========== EMERGENCY RECOVERY FUNCTIONS ==========
+def check_data_exists():
+    """Check if data file exists and is valid"""
+    if not Path(DATA_FILE).exists():
+        return False, "❌ Data file does not exist"
+    
+    try:
+        with open(DATA_FILE, 'r') as f:
+            data = json.load(f)
+            if len(data) == 0:
+                return False, "⚠️ Data file exists but is empty"
+            return True, f"✅ Data file exists with {len(data)} records"
+    except:
+        return False, "❌ Data file is corrupted or invalid"
+
+def search_for_backups():
+    """Search for backup files"""
+    backup_files = []
+    possible_files = [
+        DATA_FILE,
+        BACKUP_FILE,
+        "students_data_old.json",
+        "data.json",
+        "backup.json",
+        ".streamlit/students_data.json"
+    ]
+    
+    for file in possible_files:
+        if Path(file).exists():
+            try:
+                with open(file, 'r') as f:
+                    data = json.load(f)
+                backup_files.append((file, len(data)))
+            except:
+                backup_files.append((file, "Corrupted"))
+    
+    return backup_files
+
+def create_backup():
+    """Create a backup of current data"""
+    if Path(DATA_FILE).exists():
+        try:
+            with open(DATA_FILE, 'r') as f:
+                data = json.load(f)
+            
+            backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(backup_name, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            # Also update the main backup file
+            with open(BACKUP_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            return True, backup_name
+        except Exception as e:
+            return False, str(e)
+    return False, "No data to backup"
 
 # ========== DATA PERSISTENCE FUNCTIONS ==========
 def validate_index_format(index_number):
@@ -45,11 +104,24 @@ def load_data():
                 data = json.load(f)
                 return pd.DataFrame(data)
         except:
+            # Try to load from backup
+            if Path(BACKUP_FILE).exists():
+                try:
+                    with open(BACKUP_FILE, 'r') as f:
+                        data = json.load(f)
+                        return pd.DataFrame(data)
+                except:
+                    pass
             return pd.DataFrame(columns=['name', 'index_number', 'primary_group', 'subgroup', 'timestamp'])
     return pd.DataFrame(columns=['name', 'index_number', 'primary_group', 'subgroup', 'timestamp'])
 
 def save_data(df):
     """Save student data to JSON file"""
+    # First create backup
+    if Path(DATA_FILE).exists():
+        create_backup()
+    
+    # Save new data
     df.to_json(DATA_FILE, orient='records', indent=2)
 
 # ========== GROUPING LOGIC (FIXED) ==========
@@ -257,6 +329,14 @@ def main():
             color: #721c24;
             margin: 1rem 0;
         }
+        .emergency-box {
+            padding: 1rem;
+            border-radius: 5px;
+            background-color: #fff3cd;
+            border: 2px solid #ffc107;
+            color: #856404;
+            margin: 1rem 0;
+        }
         h1 {
             color: #1f4788;
         }
@@ -284,6 +364,9 @@ def main():
     if 'show_admin' not in st.session_state:
         st.session_state.show_admin = False
     
+    # Check data status immediately
+    data_status, data_message = check_data_exists()
+    
     # Load data
     df = load_data()
     
@@ -291,12 +374,17 @@ def main():
     st.title("🔋 Renewable Energy Course")
     st.subheader("Group Assignment System")
     
-    # Navigation tabs
+    # Navigation tabs - REMOVED RECOVERY TAB
     tab1, tab2, tab3 = st.tabs(["📝 Student Registration", "🔍 Check Assignment", "🔐 Admin Panel"])
     
     # ========== TAB 1: STUDENT REGISTRATION ==========
     with tab1:
         st.header("Student Registration")
+        
+        # Emergency notice if no data (only show to admin)
+        if len(df) == 0 and st.session_state.logged_in:
+            st.warning("⚠️ **Notice:** The database appears to be empty. Please use Recovery Tools in Admin Panel.")
+        
         st.write("Please enter your details to register for group assignment.")
         
         with st.form("registration_form", clear_on_submit=True):
@@ -424,12 +512,25 @@ def main():
             col1, col2 = st.columns([6, 1])
             with col1:
                 st.header("Admin Dashboard")
+                # Show data status
+                status_icon = "✅" if data_status else "❌"
+                st.caption(f"{status_icon} Data Status: {data_message}")
             with col2:
                 if st.button("Logout"):
                     st.session_state.logged_in = False
                     st.rerun()
             
             st.divider()
+            
+            # ========== MAIN ADMIN DASHBOARD ==========
+            
+            # Backup button at the top
+            if st.button("💾 Create Backup Now", use_container_width=True):
+                success, message = create_backup()
+                if success:
+                    st.success(f"✅ Backup created: {message}")
+                else:
+                    st.error(f"❌ Backup failed: {message}")
             
             # Statistics
             col1, col2, col3, col4 = st.columns(4)
@@ -448,6 +549,7 @@ def main():
             st.divider()
             
             # Action buttons
+            st.subheader("Group Management")
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -491,11 +593,144 @@ def main():
             
             st.divider()
             
-            # View all registrations
+            # ========== RECOVERY TOOLS (INSIDE ADMIN PANEL) ==========
+            with st.expander("🚨 **Emergency Recovery Tools**", expanded=False):
+                st.warning("Use these tools only if you've lost data or need to recover from backup.")
+                
+                # Check current status
+                status, message = check_data_exists()
+                st.info(f"**Current Status:** {message}")
+                
+                # Search for backups
+                st.subheader("🔍 Search for Backups")
+                if st.button("Scan for Backup Files", key="scan_backups"):
+                    backups = search_for_backups()
+                    if backups:
+                        st.success(f"Found {len(backups)} backup file(s):")
+                        for file, count in backups:
+                            st.write(f"- **{file}**: {count} records")
+                            
+                            # Option to restore from each backup
+                            with st.expander(f"Restore from {file}", expanded=False):
+                                try:
+                                    with open(file, 'r') as f:
+                                        backup_data = json.load(f)
+                                    st.write(f"Contains {len(backup_data)} records")
+                                    if st.button(f"Restore from {file}", key=f"restore_{file}"):
+                                        with open(DATA_FILE, 'w') as f:
+                                            json.dump(backup_data, f, indent=2)
+                                        st.success(f"✅ Restored from {file}!")
+                                        st.rerun()
+                                except:
+                                    st.error(f"Cannot read {file}")
+                    else:
+                        st.error("No backup files found!")
+                
+                # Upload backup file
+                st.subheader("📤 Upload Backup File")
+                uploaded_file = st.file_uploader("Upload a JSON backup file", type=['json'], key="upload_backup")
+                
+                if uploaded_file:
+                    try:
+                        backup_data = json.load(uploaded_file)
+                        st.success(f"✅ File loaded: {len(backup_data)} records")
+                        
+                        # Preview
+                        preview_df = pd.DataFrame(backup_data)
+                        st.dataframe(preview_df.head())
+                        
+                        if st.button("💾 Restore from Uploaded File", key="restore_upload"):
+                            with open(DATA_FILE, 'w') as f:
+                                json.dump(backup_data, f, indent=2)
+                            st.success("✅ Data restored successfully!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error reading file: {str(e)}")
+                
+                # Manual data entry (emergency)
+                st.subheader("🆕 Manual Data Entry (Emergency)")
+                st.write("If you have a list of students, enter them manually:")
+                
+                with st.form("manual_entry"):
+                    manual_data = st.text_area(
+                        "Enter student data (one per line)",
+                        placeholder="STUBTECH220001, John Doe\nSTUBTECH220002, Jane Smith",
+                        height=200,
+                        help="Format: INDEX_NUMBER, FULL_NAME"
+                    )
+                    
+                    if st.form_submit_button("Add Students"):
+                        lines = manual_data.strip().split('\n')
+                        new_students = []
+                        
+                        for line in lines:
+                            if ',' in line:
+                                parts = line.split(',', 1)
+                                if len(parts) == 2:
+                                    index_num = parts[0].strip().upper()
+                                    name = parts[1].strip()
+                                    
+                                    if validate_index_format(index_num):
+                                        new_students.append({
+                                            'name': name,
+                                            'index_number': index_num,
+                                            'primary_group': '',
+                                            'subgroup': '',
+                                            'timestamp': datetime.now().isoformat()
+                                        })
+                        
+                        if new_students:
+                            # Load current data
+                            current_df = load_data()
+                            new_df = pd.DataFrame(new_students)
+                            
+                            # Combine and save
+                            combined_df = pd.concat([current_df, new_df], ignore_index=True)
+                            save_data(combined_df)
+                            st.success(f"✅ Added {len(new_students)} new students!")
+                            st.rerun()
+                        else:
+                            st.error("No valid student data found.")
+                
+                # Direct JSON editor
+                st.subheader("✏️ Direct JSON Editor")
+                if Path(DATA_FILE).exists():
+                    with open(DATA_FILE, 'r') as f:
+                        json_content = f.read()
+                    
+                    edited_json = st.text_area("Edit JSON directly", json_content, height=300, key="json_editor")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("💾 Save JSON", key="save_json"):
+                            try:
+                                # Validate JSON
+                                json.loads(edited_json)
+                                with open(DATA_FILE, 'w') as f:
+                                    f.write(edited_json)
+                                st.success("✅ JSON saved successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Invalid JSON: {str(e)}")
+                    
+                    with col2:
+                        st.download_button(
+                            label="📥 Download Current JSON",
+                            data=json_content,
+                            file_name="students_data_backup.json",
+                            mime="application/json",
+                            key="download_json"
+                        )
+                else:
+                    st.info("No JSON file exists yet. Create one by registering students or uploading a backup.")
+            
+            st.divider()
+            
+            # ========== VIEW ALL REGISTRATIONS ==========
             st.subheader("All Registrations")
             
             # Search and filter
-            search_term = st.text_input("🔍 Search by name or index number")
+            search_term = st.text_input("🔍 Search by name or index number", key="search_admin")
             
             if len(df) > 0:
                 display_df = df.copy()
@@ -534,13 +769,13 @@ def main():
             else:
                 st.info("No students registered yet.")
             
-            # Danger zone
+            # ========== DANGER ZONE ==========
             st.divider()
             st.subheader("⚠️ Danger Zone")
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🔄 Clear All Assignments", use_container_width=True):
+                if st.button("🔄 Clear All Assignments", use_container_width=True, key="clear_assign"):
                     df['primary_group'] = ''
                     df['subgroup'] = ''
                     save_data(df)
@@ -548,8 +783,8 @@ def main():
                     st.rerun()
             
             with col2:
-                if st.button("🗑️ Delete All Data", use_container_width=True):
-                    confirm = st.checkbox("I confirm I want to delete ALL data")
+                if st.button("🗑️ Delete All Data", use_container_width=True, key="delete_all"):
+                    confirm = st.checkbox("I confirm I want to delete ALL data", key="confirm_delete")
                     if confirm:
                         if Path(DATA_FILE).exists():
                             Path(DATA_FILE).unlink()
